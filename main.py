@@ -5,17 +5,19 @@ from asciimatics.screen import Screen
 from datetime import datetime, timedelta
 from console import display_status, status, CrawlerStatus
 from lol_connection import LoLConnection, WORKERS
-from plug_mongo import get_available_player, save_entry, save_match, save_player, get_available_match
+from plug_mongo import get_available_player, save_entry, save_match, save_player, get_available_match, hit_player
 from threading import Thread
+
 
 class EndedGame(Exception):
     pass
 
+
 def get_player(players, position, team_id):
     return list(filter(
-        lambda x: 
-            players[x]["position"] == position and
-            players[x]["team_id"] == team_id,
+        lambda x:
+        players[x]["position"] == position and
+        players[x]["team_id"] == team_id,
         players
     ))[0]
 
@@ -41,17 +43,18 @@ def process_game(conn, game, region):
     return save_match(game_id, winrates, region)
 
 
-def process_match(conn:LoLConnection, match):
+def process_match(conn: LoLConnection, match):
     match_id = match[0]
     winrates = match[1]
     region = match[2]
-    
+
+    game = conn.match_result(match_id, region)
     future = datetime.now() + timedelta(minutes=60)
     while datetime.now() < future:
         game = conn.match_result(match_id, region)
         if game:
             break
-    
+
     if game:
         for player in game:
             save_player(player, game[player]["id"], region)
@@ -76,6 +79,7 @@ def process_match(conn:LoLConnection, match):
     else:
         raise Exception("Game never ends")
 
+
 def run(status):
     while status.running:
         try:
@@ -87,6 +91,7 @@ def run(status):
             sleep(120)
     status.set_status("Thread ended")
 
+
 def player_to_match(status: CrawlerStatus):
     status.set_status("Searching player")
     conn = LoLConnection()
@@ -97,6 +102,7 @@ def player_to_match(status: CrawlerStatus):
         status.set_status(f"Found Player {player_num}, Searching Game")
         game = conn.player_game(region, player_id)
         if game:
+            hit_player(player)
             status.set_status("Found Game")
             if not process_game(conn, game, region):
                 status.set_status("Game Ended early")
@@ -107,21 +113,23 @@ def player_to_match(status: CrawlerStatus):
             player = get_available_player()
             player_num += 1
 
+
 def match_to_entry(status: CrawlerStatus):
     status.set_status("Searching Match")
     conn = LoLConnection()
     match = get_available_match()
-    if match:
+    while match:
         status.set_status("Found match, Searching match result")
         process_match(conn, match)
         match = get_available_match()
+
 
 threads: List[Thread]
 threads = []
 
 for i in range(WORKERS):
     status.append(CrawlerStatus(str(i) + " "))
-    threads.append(Thread(target=run, args=(status[-1], )))
+    threads.append(Thread(target=run, args=(status[-1],)))
     threads[-1].start()
     sleep(1)
 
